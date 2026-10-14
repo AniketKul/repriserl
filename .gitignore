@@ -1,0 +1,45 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.netrc
+.venv/
+venv/
+.DS_Store
+
+# Python, native build, and tool outputs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Unreviewed inputs and generated run artifacts
+private/
+local/
+checkpoints/
+model-cache/
+outputs/
+wandb/
+*.log
+
+# Local planning and research materials
+AGENTS.md
+docs/plans/
+**/*[Pp]roposal*
+**/*[Bb]rainstorm*
+**/*[Hh]andoff*
+**/[Kk][Ii][Cc][Kk][Oo][Ff][Ff].md
+**/*IMPLEMENTATION_BRIEF*
+*.zip
+.superpowers/
+.worktrees/
