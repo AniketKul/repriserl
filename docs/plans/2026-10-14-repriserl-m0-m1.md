@@ -162,5 +162,5 @@ Each phase should receive its own repository-specific plan and acceptance review
 - Every proposed module has an owner task; common types are defined before dependent interfaces.
 - All five review-focus classes have assigned tests.
 - Numerical correctness and baseline parity precede persistent/distributed infrastructure.
-- Product tests and learning benchmarks remain unrun. Dependency declaration checks and hardware discovery are recorded separately from runtime compatibility and training results.
+- Foundation CPU tests have passed; trainer/replay tests and learning benchmarks remain pending. Dependency declaration checks and hardware discovery are recorded separately from runtime compatibility and training results.
 - Hardware assumptions and later research targets are not promoted to measured facts.

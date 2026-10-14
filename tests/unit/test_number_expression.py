@@ -6,7 +6,7 @@ import hashlib
 import pytest
 
 from repriserl.verifiers.number_expression import (
-    ANSWER_EXTRACTION_RULE, VERIFIER_DIGEST, VERIFIER_VERSION,
+    ANSWER_EXTRACTION_RULE, VERIFIER_CONTRACT, VERIFIER_DIGEST, VERIFIER_VERSION,
     Problem, verify_expression,
 )
 
@@ -115,5 +115,7 @@ def test_verifier_api_and_result_are_immutable():
 def test_contract_digest_binds_extraction_and_version():
     assert VERIFIER_VERSION == "number-expression-v1"
     assert ANSWER_EXTRACTION_RULE == "trim-outer-whitespace-then-parse-entire-expression"
-    assert len(VERIFIER_DIGEST) == 64
-    assert int(VERIFIER_DIGEST, 16) >= 0
+    assert VERIFIER_DIGEST == (
+        "b5a05b8b4ff358b2ff6d7987f4fd9ff31abee840eb929930137ba1fbd9e2c2fd"
+    )
+    assert VERIFIER_DIGEST == hashlib.sha256(VERIFIER_CONTRACT.encode("ascii")).hexdigest()
