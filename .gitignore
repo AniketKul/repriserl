@@ -1,0 +1,46 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.netrc
+.venv/
+venv/
+.DS_Store
+
+# Python, native build, and tool outputs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Unreviewed inputs and generated run artifacts
+private/
+local/
+checkpoints/
+model-cache/
+outputs/
+wandb/
+*.log
+
+# Conversation exports, handoff archives, and brainstorming history
+**/original-handoff/
+**/recovered-handoff/
+**/brainstorm*/
+**/*brainstorm*.md
+**/sources/*.jsonl
+**/genius-ideas*
+**/RepriseRL_Codex_Handoff.md
+**/RepriseRL_Codex_Package.zip
+**/RepriseRL_Recovered_Handoff.zip
+**/RECOVERY_MANIFEST.json
+**/SOURCE_AUDIT.md
