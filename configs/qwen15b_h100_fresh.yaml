@@ -1,0 +1,18 @@
+# Candidate development profile; this file neither reserves nor launches a GPU.
+model: Qwen/Qwen2.5-1.5B-Instruct
+model_revision: null  # Must be pinned to an immutable Hub SHA before model runs.
+requested_gpu_count: 1
+prompt_token_cap: 512
+completion_token_cap: 1024
+group_size: 4
+batch_groups: 8
+microbatch_size: 1
+learning_rate: 0.000001  # Candidate to tune with a separately bounded sweep.
+beta: 0
+seed: 0
+max_steps: 100  # Development budget, not a validated learning experiment budget.
+max_time_seconds: null
+std_convention: null
+eos_handling: null
+truncation_handling: null
+normalization: null
