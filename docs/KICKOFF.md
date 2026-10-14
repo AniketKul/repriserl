@@ -10,19 +10,54 @@ Updated: 2026-10-14.
 - Checked availability of the proposed TRL release and its Python/dependency requirements.
 - Adapted the M0/M1 task map to the new repository without changing the learning objective or numerical acceptance gates.
 
-## Implementation status
+## Implemented CPU foundations
 
-No product code, package installation, model download, training, learning benchmark, or measured performance result has been produced. The repository has no build system or test suite yet. Documentation and publication checks do not count as M0/M1 completion.
+The first implementation slice covers [M0/M1 Tasks 1 and 2](plans/2026-10-14-repriserl-m0-m1.md):
 
-## Ready to begin
+- `pyproject.toml` and `config/requirements-dev.lock`: installable Python package,
+  pinned CPU development dependencies, wheel and source distribution builds.
+- `python/repriserl/config.py` and `configs/qwen15b_h100_fresh.yaml`: immutable
+  settings, explicit run budget, safe YAML parsing, duplicate/unknown key rejection,
+  and unset model/numerical choices that training integration must resolve.
+- `python/repriserl/hardware.py`: bounded read-only NVIDIA queries, CPU fallback,
+  explicit unknown/unavailable states, and conservative full-H100 availability.
+  Malformed identifiers and undecodable command output cannot imply readiness.
+- `python/repriserl/verifiers/number_expression.py`: complete-expression grammar,
+  exact rational arithmetic, exact repeated-number accounting, input/work bounds,
+  canonical problem IDs, and a versioned verifier contract/digest.
+- `python/repriserl/data/problems.py`: immutable deterministic train/development/test
+  splits, global canonical deduplication, bounded generation, and generation/split
+  digests. The initial four-number distribution has not been difficulty-calibrated.
+- `tests/unit/`: configuration, hardware, adversarial expression, reproducibility,
+  and split-separation coverage. `.github/workflows/ci.yml` runs CPU checks on
+  Python 3.11 and 3.12, builds distributions, and imports the wheel outside source.
 
-The first implementation slice is [M0/M1 Tasks 1 and 2](plans/2026-10-14-repriserl-m0-m1.md):
+## Verification evidence
 
-1. Add packaging, validated explicit configuration, and read-only hardware reporting.
-2. Add a bounded arithmetic parser/verifier using exact arithmetic, with malformed-input tests.
-3. Add deterministic canonical train/development/test splits with disjointness checks.
+At implementation commit `261f11e40890350627d0d4f1e62b10f232111643`:
 
-These CPU foundations can begin without a model download or GPU allocation. Keep TRL imports out of the verifier and configuration layer.
+| Check | Command / method | Outcome |
+|---|---|---|
+| macOS, Python 3.12 | `python -m pytest -q` | 147 passed |
+| Linux, Python 3.12 | `python -m pytest -q` in isolated environment | 147 passed |
+| Both platforms | `python -m build --no-isolation` | Source distribution and wheel built |
+| Linux installed package | Install wheel; use `python -I` outside source | Config, verifier, split digest and hardware imports passed |
+| Reproducibility | Seed 7, sizes `(3, 1, 1)`, fixed golden fixture | Same digest on macOS and Linux |
+| Actual hardware inspector | Read-only query on an authorized host | Full H100 observed available; no GPU allocation or model execution |
+
+Raw hardware inventory, connection details and execution receipts stay outside
+the public repository. Availability can change after inspection. Full proposed
+20,000/512/2,048 splits have not been generated or used for model selection.
+
+No model download, training, learning benchmark, replay backend, or measured
+performance improvement has been produced. These CPU foundations do not satisfy
+the M0 learning-evidence exit gate.
+
+## Next implementation slice
+
+Task 3: validate the pinned trainer environment and probability/loss conventions,
+then implement the stock baseline driver and phase-time accounting. Tasks 4–7
+cover numerical replay, bounded storage, the trainer adapter and reporting.
 
 ## Gates for subsequent work
 

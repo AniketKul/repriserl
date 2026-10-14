@@ -4,7 +4,7 @@
 
 RepriseRL is a proposed policy-aware experience replay backend for LLM post-training. It aims to reuse eligible rollout groups while preserving their generating-policy identity, original probabilities, rewards, and consumption history.
 
-**Current stage: design and implementation planning.** This repository has no product code, installable package, training results, or measured speedup yet. The first implementation milestone is the reproducible baseline and loss-correct reference replay.
+**Current stage: M0 CPU foundations implemented.** The installable Python package includes validated configuration, read-only hardware reporting, a bounded exact-arithmetic verifier, and deterministic task splits. Trainer integration, replay, training results, and measured speedup remain future work.
 
 ## Objective
 
@@ -32,7 +32,7 @@ Test whether bounded replay reaches a declared model-quality target with less to
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| M0 | Reproducible stock baseline, verifier, dataset splits, and resource measurements | Planning; initial hardware discovery complete |
+| M0 | Reproducible stock baseline, verifier, dataset splits, and resource measurements | CPU foundations complete; trainer and learning evidence pending |
 | M1 | Numerically validated reference replay and measured fixed-replay comparison | Planned |
 | M2 | Persistent C++ service and protocol parity | Planned |
 | M3 | Joint learner/replay recovery and GPU phase control | Planned |
@@ -41,7 +41,49 @@ Test whether bounded replay reaches a declared model-quality target with less to
 
 ## Development
 
-Start with M0/M1 Tasks 1 and 2: configuration and hardware reporting, then the bounded arithmetic verifier and deterministic task splits. Trainer integration follows a tested environment lock and loss-contract review. There are no build, installation, or training commands to run from this revision.
+Use Python 3.11 or 3.12 in an isolated environment:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r config/requirements-dev.lock
+python -m pip install --no-build-isolation -e .
+python -m pytest -q
+python -m build --no-isolation
+```
+
+The lock pins the CPU development dependencies. It is not a trainer-stack lock.
+CI tests both supported development Python versions and checks the built wheel
+outside the source checkout.
+
+```python
+from pathlib import Path
+from repriserl.config import load_config
+from repriserl.data.problems import make_splits
+from repriserl.verifiers.number_expression import Problem, verify_expression
+
+config = load_config(Path("configs/qwen15b_h100_fresh.yaml"))
+result = verify_expression(Problem((1, 2, 3, 4), 24), "1 * 2 * 3 * 4")
+assert result.reward == 1.0
+splits = make_splits(seed=7, sizes=(8, 2, 2))
+print(splits.canonical_digest)
+```
+
+The verifier accepts the entire expression, with each supplied number used
+exactly once. Prose, code, unary operators, malformed or oversized expressions
+receive zero reward. Arithmetic uses exact rational values. Verifier and generator
+contracts expose versions and SHA-256 digests for later rollout provenance.
+
+The initial generator draws four numbers from 1–20 and retains solvable integer
+targets from 1–1000. This distribution has not been calibrated for difficulty.
+Splits are deterministic and disjoint by canonical number multiset and target;
+changing split sizes changes boundaries, so freeze a split artifact before use.
+
+`repriserl.hardware.inspect_hardware()` reports observed availability without
+allocating a GPU or importing a training framework. Availability is an observation,
+not a reservation. The example configuration has a 100-step development limit;
+model revision and numerical conventions must be pinned before training. No
+training entry point is implemented yet.
 
 Retain numerical parity, immutable behavior probabilities, complete-group accounting, and explicit time/step budgets throughout implementation. CPU checks, GPU smoke runs, actual learning curves, and synthetic service tests must be reported separately.
 

@@ -10,7 +10,7 @@
 
 **Spec:** [Implementation proposal](../RepriseRL_Implementation_Proposal.md). Current status: [Kickoff](../KICKOFF.md).
 
-**Status (2026-10-14):** Reviewed for the new documentation-only repository. Initial hardware discovery is complete; allocation must be rechecked before each GPU run. Product modules and tests below remain planned. Tasks 1 and 2 can start with CPU tests; trainer-dependent work requires a tested dependency lock and explicit algorithm conventions. No training or learning benchmark has run.
+**Status (2026-10-14):** Tasks 1 and 2 are implemented and reviewed: configuration, hardware reporting, bounded exact-arithmetic verification and canonical task splits. The 147-test CPU suite and distribution builds passed on macOS and Linux; see the kickoff record for source-bound evidence. Tasks 3–7 remain planned. Trainer-dependent work requires a tested dependency lock and explicit algorithm conventions. No training or learning benchmark has run.
 
 ## Global Constraints
 
@@ -72,11 +72,11 @@ Use existing equivalents if a repository is already present. Keep all version-sp
 
 **Interfaces:** Produces `RunConfig`, `HardwareReport`, `load_config(path: Path) -> RunConfig`, and `inspect_hardware() -> HardwareReport`. The report contains observed devices/allocation/host resources and explicit unknowns; it does not grant permission to use the devices.
 
-- [ ] Write failing tests: `test_single_gpu_contract` rejects requested GPU counts other than one; `test_default_profile` checks 512/1024 token caps, group=4, batch_groups=8, microbatch=1, and beta=0; `test_no_cuda_is_reported` expects a usable CPU report; `test_mig_and_busy_device_are_not_full_free_h100` exercises mocked observations.
-- [ ] Run `python -m pytest tests/unit/test_config.py tests/unit/test_hardware.py -q`; confirm the failures are missing implementation, not broken test collection.
-- [ ] Implement the interfaces with explicit validation. Keep LR=1e-6 a declared candidate. Record a mandatory per-run maximum-step or maximum-time budget; do not default to an unlimited run.
-- [ ] Repeat the tests and save an actual read-only hardware report when available. An 80 GB assumption must never become an observed value without a measurement.
-- [ ] Review the diff and create a focused commit when repository policy permits it.
+- [x] Write failing tests: `test_single_gpu_contract` rejects requested GPU counts other than one; `test_default_profile` checks 512/1024 token caps, group=4, batch_groups=8, microbatch=1, and beta=0; `test_no_cuda_is_reported` expects a usable CPU report; `test_mig_and_busy_device_are_not_full_free_h100` exercises mocked observations.
+- [x] Run `python -m pytest tests/unit/test_config.py tests/unit/test_hardware.py -q`; confirm the failures are missing implementation, not broken test collection.
+- [x] Implement the interfaces with explicit validation. Keep LR=1e-6 a declared candidate. Record a mandatory per-run maximum-step or maximum-time budget; do not default to an unlimited run.
+- [x] Repeat the tests and save an actual read-only hardware report when available. An 80 GB assumption must never become an observed value without a measurement.
+- [x] Review the diff and create a focused commit when repository policy permits it.
 
 ### Task 2: Deterministic verifier and separated task splits
 
@@ -84,11 +84,11 @@ Use existing equivalents if a repository is already present. Keep all version-sp
 
 **Interfaces:** Produces `Problem`, `VerificationResult`, `verify_expression(problem: Problem, completion: str) -> VerificationResult`, and `make_splits(seed: int, sizes: tuple[int, int, int]) -> ProblemSplits`. `ProblemSplits` exposes train/development/test IDs and canonical digests.
 
-- [ ] Write failing tests for correct exact-arithmetic solutions, repeated-number accounting, missing/extra numbers, divide-by-zero, malformed syntax, overly large expressions, code-like payload rejection, and canonical split disjointness. Use no `eval` or `exec`.
-- [ ] Run `python -m pytest tests/unit/test_number_expression.py tests/unit/test_problem_splits.py -q` and verify expected failures.
-- [ ] Implement a restricted grammar with bounded parsing and rational arithmetic. Preserve a canonical multiset-and-target problem identity. Freeze the answer-extraction rule and verifier digest.
-- [ ] Repeat tests; generate a small deterministic fixture twice and verify identical IDs, rewards, and hashes. Full 20,000/512/2,048 datasets are proposed defaults, not prerequisites for unit tests.
-- [ ] Review and commit. Do not tune on sealed-test outputs.
+- [x] Write failing tests for correct exact-arithmetic solutions, repeated-number accounting, missing/extra numbers, divide-by-zero, malformed syntax, overly large expressions, code-like payload rejection, and canonical split disjointness. Use no `eval` or `exec`.
+- [x] Run `python -m pytest tests/unit/test_number_expression.py tests/unit/test_problem_splits.py -q` and verify expected failures.
+- [x] Implement a restricted grammar with bounded parsing and rational arithmetic. Preserve a canonical multiset-and-target problem identity. Freeze the answer-extraction rule and verifier digest.
+- [x] Repeat tests; generate a small deterministic fixture twice and verify identical IDs, rewards, and hashes. Full 20,000/512/2,048 datasets are proposed defaults, not prerequisites for unit tests.
+- [x] Review and commit. Do not tune on sealed-test outputs.
 
 ### Task 3: Reproducible stock baseline and timing envelope
 

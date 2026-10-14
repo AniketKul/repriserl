@@ -1,6 +1,6 @@
 # RepriseRL engineering guidance
 
-This repository currently contains the project specification and implementation plan. Follow the current status in `docs/KICKOFF.md`; product code and tests have not yet been implemented.
+This repository contains the project specification, implementation plan, and tested CPU foundations. Follow `docs/KICKOFF.md` for completed work and remaining trainer/replay gates. Run CPU tests with `python -m pytest -q` and build with `python -m build --no-isolation` in the isolated development environment described in `README.md`.
 
 ## Mission and fixed constraints
 
