@@ -1,0 +1,47 @@
+name: CPU foundations
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: config/requirements-dev.lock
+      - name: Install CPU development dependencies
+        run: python -m pip install -r config/requirements-dev.lock
+      - name: Test source
+        run: python -m pytest -q
+      - name: Build distribution
+        run: python -m build --no-isolation
+      - name: Check installed wheel outside source
+        shell: bash
+        run: |
+          python -m pip install --no-deps dist/repriserl-0.1.0-py3-none-any.whl
+          cd "$RUNNER_TEMP"
+          python -I - <<'PY'
+          import sys
+          from repriserl.config import RunConfig
+          from repriserl.hardware import inspect_hardware
+          from repriserl.data.problems import make_splits
+          from repriserl.verifiers.number_expression import Problem, verify_expression
+          assert RunConfig(max_steps=1).requested_gpu_count == 1
+          assert verify_expression(Problem((1, 2, 3, 4), 24), "1*2*3*4").reward == 1.0
+          assert make_splits(7, (3, 1, 1)).canonical_digest == (
+              "665689616c2c531cb58223557e5ab20036028125e386443ea86c5f09ddd43476"
+          )
+          assert inspect_hardware().status in {"cpu_only", "unavailable", "unknown", "gpu_ready"}
+          assert "torch" not in sys.modules and "trl" not in sys.modules
+          PY
