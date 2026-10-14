@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import csv
 import io
 import os
+import re
 import shutil
 import subprocess
 
@@ -75,7 +76,7 @@ def _query(executable: str, field: str) -> str | None:
         if result.returncode != 0 or len(result.stdout) > 1_000_000:
             return None
         return result.stdout
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
 
 
@@ -85,6 +86,14 @@ def _integer(value: str) -> int | None:
         return number if number >= 0 else None
     except ValueError:
         return None
+
+
+def _gpu_uuid(value: str) -> str | None:
+    """Validate and normalize internal identity; never serialize this value."""
+    value = value.strip()
+    if re.fullmatch(r"GPU-[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value):
+        return value.lower()
+    return None
 
 
 def inspect_hardware() -> HardwareReport:
@@ -115,10 +124,11 @@ def inspect_hardware() -> HardwareReport:
     processes = None
     if process_raw is not None:
         rows = [line.strip() for line in process_raw.splitlines() if line.strip()]
-        if all(line.startswith("GPU-") and "," not in line for line in rows):
-            processes = set(rows)
+        identities = [_gpu_uuid(line) for line in rows]
+        if all(identity is not None for identity in identities):
+            processes = set(identities)
     devices = []
-    parse_failed = False
+    parse_failed = process_raw is not None and processes is None
     try:
         rows = list(csv.reader(io.StringIO(raw), skipinitialspace=True, strict=True))
     except csv.Error:
@@ -143,7 +153,10 @@ def inspect_hardware() -> HardwareReport:
         name = "NVIDIA H100" if "H100" in row[1] else "other GPU"
         if "MIG" in row[1]:
             mig = True
-        busy = None if processes is None or not row[2].startswith("GPU-") else row[2] in processes
+        identity = _gpu_uuid(row[2])
+        if identity is None:
+            parse_failed = True
+        busy = None if processes is None or identity is None else identity in processes
         visible = True if mask is None else False if not mask.strip() else None
         if len(rows) == 1 and mask is not None and mask.strip() == "0" and index == 0:
             allocation = "numeric_single"
@@ -154,6 +167,9 @@ def inspect_hardware() -> HardwareReport:
     if parse_failed:
         notes.append("Malformed GPU query output; availability unknown.")
         return report("unknown", "malformed", tuple(devices))
+    if process_raw is None:
+        notes.append("GPU process query failed or timed out; details redacted.")
+        return report("unknown", "query_failed", tuple(devices))
     if not devices:
         return report("cpu_only", "ok")
     if allocation == "empty":
