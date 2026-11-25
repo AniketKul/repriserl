@@ -2,7 +2,7 @@
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, replace
 from functools import wraps
-from hashlib import sha256
+from hashlib import file_digest, sha256
 from importlib.metadata import version
 import json
 import math
@@ -111,10 +111,14 @@ def make_trainer(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
     )
     if tiny:
         enable_tiny_cpu_scores(trainer.model)
-    fixture = problem_prompt(Problem((1, 3, 7, 11), 24), tokenizer)
-    trainer.repriserl_prompt_digest = sha256(fixture.encode("utf-8")).hexdigest()
+    trainer.repriserl_prompt_digest = prompt_digest(tokenizer)
     trainer.repriserl_config = config
     return trainer
+
+
+def prompt_digest(tokenizer) -> str:
+    fixture = problem_prompt(Problem((1, 3, 7, 11), 24), tokenizer)
+    return sha256(fixture.encode("utf-8")).hexdigest()
 
 
 def _instrument(trainer, meter, tiny):
@@ -149,19 +153,26 @@ def _instrument(trainer, meter, tiny):
 
 
 def _evaluate(trainer, problems, token_cap):
+    return greedy_correct(trainer.model, trainer.processing_class, problems, token_cap,
+                          trainer.eos_token_ids, trainer.accelerator.autocast(),
+                          prompt_cap=trainer.repriserl_config.prompt_token_cap)
+
+
+def greedy_correct(model, tokenizer, problems, token_cap, eos_ids, autocast, *, prompt_cap):
     import torch
     from transformers import GenerationConfig
-    model, tokenizer = trainer.model, trainer.processing_class
     was_training = model.training
     model.eval()
     num_correct = 0
     greedy = GenerationConfig(max_new_tokens=token_cap, do_sample=False, use_cache=True,
-                              eos_token_id=trainer.eos_token_ids, pad_token_id=tokenizer.pad_token_id)
+                              eos_token_id=eos_ids, pad_token_id=tokenizer.pad_token_id)
     try:
-        with torch.inference_mode(), trainer.accelerator.autocast():
+        with torch.inference_mode(), autocast:
             for problem in problems:
                 encoded = tokenizer(problem_prompt(problem, tokenizer), return_tensors="pt",
                                     return_token_type_ids=False).to(model.device)
+                if encoded.input_ids.shape[1] > prompt_cap:
+                    raise ValueError("an evaluation prompt exceeds prompt_token_cap")
                 tokens = model.generate(**encoded, generation_config=greedy)
                 completion = tokenizer.decode(tokens[0, encoded.input_ids.shape[1]:],
                                               skip_special_tokens=True)
@@ -171,13 +182,29 @@ def _evaluate(trainer, problems, token_cap):
     return num_correct
 
 
-def _save_policy(trainer, path: Path) -> None:
+def checkpoint_digest(path: Path) -> str:
+    """Bind checkpoint contents and names, including weight shards and tokenizer files."""
+    if path.is_symlink() or not path.is_dir():
+        raise ValueError("checkpoint must be a local directory")
+    manifest = []
+    for file in sorted(path.rglob("*")):
+        if file.is_symlink() or not (file.is_dir() or file.is_file()):
+            raise ValueError("checkpoint contains a link or non-regular file")
+        if file.is_file():
+            with file.open("rb") as stream:
+                manifest.append((file.relative_to(path).as_posix(), file_digest(stream, "sha256").hexdigest()))
+    return sha256(json.dumps(manifest, separators=(",", ":")).encode()).hexdigest()
+
+
+def _save_policy(trainer, path: Path) -> str:
     if os.path.lexists(path):
         raise FileExistsError(f"checkpoint already exists: {path.name}")
     with TemporaryDirectory(prefix=".saving-policy-", dir=path.parent) as staging:
         trainer.model.save_pretrained(staging)
         trainer.processing_class.save_pretrained(staging)
+        digest = checkpoint_digest(Path(staging))
         Path(staging).rename(path)
+    return digest
 
 
 def _write_summary(path: Path, summary: dict) -> None:
@@ -220,6 +247,7 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                 raise ValueError("eval_every must be a positive integer")
             with meter.phase("setup"):
                 splits = make_splits(config.seed, sizes)
+                summary["split_sizes"] = list(sizes)
                 summary["split_digest"] = splits.canonical_digest
                 summary["dev_size"] = len(splits.development)
                 summary["versions"] = {pkg: version(pkg) for pkg in (
@@ -230,6 +258,7 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                     trainer_class = ReplayGRPOAdapter
                 trainer = make_trainer(config, output_dir, tiny=tiny, num_iterations=num_iterations,
                                        splits=splits, trainer_class=trainer_class, callbacks=callbacks)
+            summary["generation_eos_ids"] = list(trainer.eos_token_ids)
             summary["prompt_digest"] = trainer.repriserl_prompt_digest
             track = _instrument(trainer, meter, tiny)
             class Evaluate(TrainerCallback):
@@ -246,11 +275,11 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                                and "target_checkpoint" not in summary)
                         if hit:
                             with meter.phase("save_target_model"):
-                                _save_policy(trainer, output_dir / "target-model")
+                                target_digest = _save_policy(trainer, output_dir / "target-model")
                         elapsed = meter.elapsed()
                         if hit:
                             summary["target_checkpoint"] = {
-                                "model_path": "target-model", "step": state.global_step,
+                                "model_path": "target-model", "sha256": target_digest, "step": state.global_step,
                                 "accuracy": accuracy, "target_accuracy": config.target_accuracy,
                                 "elapsed_seconds": elapsed,
                             }
@@ -271,7 +300,7 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
             if result.global_step != trainer.args.max_steps:
                 raise RuntimeError("trainer exited before its requested update count")
             with meter.phase("save_model"):
-                _save_policy(trainer, output_dir / "model")
+                summary["model_sha256"] = _save_policy(trainer, output_dir / "model")
             summary["model_path"] = "model"
             summary["status"] = "completed"
     except BaseException as exc:
