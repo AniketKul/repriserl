@@ -65,3 +65,29 @@ def test_cpu_head_matches_model_logits_and_gradients():
     masked = torch.cat((torch.full((1, 2), -100), labels), dim=1)
     padded_scores = model(padded, attention_mask=attention, labels=masked, fused_lm_head=True)
     torch.testing.assert_close(padded_scores.log_probs[0, -2:], expected)
+
+
+def test_cuda_preflight_records_denial_before_loading_a_model(monkeypatch, tmp_path):
+    from repriserl import gpu_run
+    from repriserl.adapters.trl.baseline import run_baseline
+    def deny(allow_shared):
+        assert not allow_shared
+        raise RuntimeError("device unavailable")
+    monkeypatch.setattr(gpu_run, "check_device", deny)
+    with pytest.raises(RuntimeError, match="device unavailable"):
+        run_baseline(RunConfig(max_steps=1), tmp_path, sizes=(8, 1, 0))
+    record = json.loads((tmp_path / "summary.json").read_text())
+    assert record["status"] == "failed" and record["steps"] == 0
+    assert record["device_sharing"] == "unverified"
+
+
+def test_instruct_prompt_uses_model_generation_template():
+    from repriserl.adapters.trl.models import load_model_and_tokenizer, problem_prompt
+    from repriserl.verifiers.number_expression import Problem
+    _, tokenizer = load_model_and_tokenizer(RunConfig(max_steps=1), tiny=True)
+    tokenizer.chat_template = (
+        "{{ messages[0].role }}: {{ messages[0].content }}"
+        "{% if add_generation_prompt %} assistant:{% endif %}"
+    )
+    problem = Problem((2, 2, 3), 7)
+    assert problem_prompt(problem, tokenizer) == "user: " + problem_prompt(problem) + " assistant:"

@@ -1,6 +1,5 @@
 """Shared model, prompt and exact arithmetic reward for the stock and replay trainers."""
 from repriserl.config import RunConfig
-from repriserl.hardware import inspect_hardware
 from repriserl.verifiers.number_expression import Problem, verify_expression
 
 
@@ -28,8 +27,10 @@ def load_model_and_tokenizer(config: RunConfig, *, tiny: bool):
     if not tiny:
         if not config.model_revision:
             raise ValueError("an immutable model_revision is required for a Hub model")
-        if inspect_hardware().status != "gpu_ready" or torch.cuda.device_count() != 1:
-            raise RuntimeError("a single available full H100 is required")
+        from repriserl.gpu_run import check_device
+        check_device(config.allow_shared_gpu)
+        if torch.cuda.device_count() != 1:
+            raise RuntimeError("the trainer requires exactly one visible CUDA device")
         kwargs = dict(revision=config.model_revision, trust_remote_code=False)
         tokenizer = AutoTokenizer.from_pretrained(config.model, **kwargs)
         # Keep optimizer master parameters in FP32. Trainer autocasts the forward pass.

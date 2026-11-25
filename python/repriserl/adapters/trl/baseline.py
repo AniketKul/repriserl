@@ -1,5 +1,5 @@
 """Single-device stock GRPO training and shared evaluation for replay experiments."""
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, replace
 from functools import wraps
 from importlib.metadata import version
@@ -174,9 +174,12 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
         json.dump(summary, started)
     summary["device_sharing"] = "cpu" if tiny else "unverified"
     summary["score_head"] = "dense_cpu_fixture" if tiny else "trl_fused"
-    trainer = None
+    trainer = observation = None
     try:
-        with _deadline(config.max_time_seconds):
+        with _deadline(config.max_time_seconds), ExitStack() as resources:
+            if not tiny:
+                from repriserl.gpu_run import observe_run
+                observation = resources.enter_context(observe_run(config.allow_shared_gpu))
             from transformers import TrainerCallback
             import torch
             config = _checked_config(config)
@@ -235,6 +238,8 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
         raise
     finally:
         timing = meter.finish()
+        if observation is not None:
+            summary.update(device_sharing=observation.label, occupancy_samples=observation.samples)
         if trainer is not None:
             summary["steps"] = trainer.state.global_step
             if hasattr(trainer, "replay_metrics"):
