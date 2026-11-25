@@ -57,6 +57,19 @@ def drift_rejection(current, old, mask):
     return "drift" if outside.sum().item() > 0.30 * delta.numel() else None
 
 
+def _reward_counts(groups):
+    rows = [r for group in groups for r in group.rollouts]
+    return {
+        "groups": len(groups),
+        "completions": len(rows),
+        "rewarded_completions": sum(r.reward != 0 for r in rows),
+        "nonzero_reward_groups": sum(any(r.reward != 0 for r in g.rollouts) for g in groups),
+        "mixed_reward_groups": sum(len({r.reward for r in g.rollouts}) > 1 for g in groups),
+        "nonzero_advantage_groups": sum(any(r.advantage != 0 for r in g.rollouts) for g in groups),
+        "truncated_completions": sum(r.truncated for r in rows),
+    }
+
+
 class _RecordUpdate(TrainerCallback):
     def __init__(self, trainer):
         self.trainer = trainer
@@ -206,7 +219,8 @@ class ReplayGRPOAdapter(GRPOTrainer):
                 result = prepared_inputs(batch, self._tokenizer.pad_token_id, self.accelerator.device)
             record = dict(step=step, batch_id=batch_id, selection_seed=seed, replay_quota=quota,
                           candidates=reservation.group_ids, accepted=[g.group_id for g in accepted],
-                          rejected=rejected, fresh=[g.group_id for g in fresh], valid_tokens=batch.valid_tokens)
+                          rejected=rejected, fresh=[g.group_id for g in fresh], valid_tokens=batch.valid_tokens,
+                          reward_counts={"fresh": _reward_counts(fresh), "replay": _reward_counts(accepted)})
             self._pending = record, fresh, self._now()
             return result
         except BaseException:
