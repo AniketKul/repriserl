@@ -24,6 +24,7 @@ class RunConfig:
     model: str = "Qwen/Qwen2.5-1.5B-Instruct"
     model_revision: str | None = None
     requested_gpu_count: int = 1
+    allow_shared_gpu: bool = False
     prompt_token_cap: int = 512
     completion_token_cap: int = 1024
     group_size: int = 4
@@ -40,6 +41,8 @@ class RunConfig:
     normalization: str | None = None
 
     def __post_init__(self) -> None:
+        if type(self.allow_shared_gpu) is not bool:
+            raise ValueError("allow_shared_gpu must be boolean")
         for name in ("requested_gpu_count", "prompt_token_cap", "completion_token_cap",
                      "group_size", "batch_groups", "microbatch_size"):
             value = getattr(self, name)
