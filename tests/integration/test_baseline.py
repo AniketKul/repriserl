@@ -105,10 +105,15 @@ def test_worked_examples_and_common_train_eval_rendering(monkeypatch, tmp_path):
                            model_tokenizer=(model, tokenizer))
     rendered = trainer.train_dataset[0]["prompt"]
     examples = re.findall(r"user: Numbers: ([0-9, ]+)\. Target: (\d+)\.\nassistant: ([^\n]+)", rendered)
-    assert len(examples) == 2
+    assert len(examples) == 3
+    assert "First check if adding all numbers reaches the target." in rendered
     for numbers, target, answer in examples:
         demo = Problem(tuple(map(int, numbers.split(","))), int(target))
         assert verify_expression(demo, answer).reward == 1.0
+        for dev, test in (((demo,), ()), (splits.development, (demo,))):
+            with pytest.raises(ValueError, match="demonstration"):
+                make_trainer(config, tmp_path, tiny=True, num_iterations=1,
+                             splits=ProblemSplits((problem,), dev, test), model_tokenizer=(model, tokenizer))
     assert rendered.endswith("user: Numbers: 1, 3, 7, 11. Target: 24.\nassistant:")
     generated_for = []
     generate = model.generate
@@ -118,10 +123,6 @@ def test_worked_examples_and_common_train_eval_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(model, "generate", capture)
     _evaluate(trainer, (problem,), token_cap=2)
     assert generated_for == [tokenizer(rendered)["input_ids"]]
-    overlap = ProblemSplits((problem,), (Problem((2, 3, 4, 5), 15),), ())
-    with pytest.raises(ValueError, match="demonstration"):
-        make_trainer(config, tmp_path, tiny=True, num_iterations=1, splits=overlap,
-                     model_tokenizer=(model, tokenizer))
 
 
 def test_time_only_trainer_rejected_before_allocating(tmp_path):

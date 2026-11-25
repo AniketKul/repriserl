@@ -6,6 +6,7 @@ from repriserl.verifiers.number_expression import Problem, verify_expression
 PROMPT_EXAMPLES = (
     (Problem((2, 3, 4, 5), 15), "(2 + 3) * 4 - 5"),
     (Problem((2, 2, 3, 8), 15), "(8 - 2) * 2 + 3"),
+    (Problem((4, 5, 6, 10), 25), "4 + 5 + 6 + 10"),
 )
 
 
@@ -18,7 +19,8 @@ def problem_prompt(problem: Problem, tokenizer=None) -> str:
     if tokenizer is not None and tokenizer.chat_template:
         messages = [{"role": "system", "content": (
             "Solve the numbers puzzle. Reply with a single arithmetic expression using each number "
-            "exactly once. Use only digits, +, -, *, /, and parentheses."
+            "exactly once. Use only digits, +, -, *, /, and parentheses. "
+            "First check if adding all numbers reaches the target."
         )}]
         for example, solution in PROMPT_EXAMPLES:
             messages.extend((_puzzle_message(example), {"role": "assistant", "content": solution}))
