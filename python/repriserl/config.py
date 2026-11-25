@@ -1,6 +1,6 @@
 """CPU-only run settings. Defaults describe a candidate, not a tuned baseline.
 
-Numerical mask/std choices and model revision remain unset until integration.
+The H100 YAML profile pins the model revision and matched loss conventions.
 The supplied example's 100-step limit is a bounded development budget.
 """
 from dataclasses import dataclass, fields

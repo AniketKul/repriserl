@@ -45,3 +45,31 @@ jobs:
           assert inspect_hardware().status in {"cpu_only", "unavailable", "unknown", "gpu_ready"}
           assert "torch" not in sys.modules and "trl" not in sys.modules
           PY
+
+  training:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install CPU trainer
+        run: |
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.9.1'
+          python -m pip install '.[train,dev]'
+      - name: Verify trainer imports and run suite
+        run: |
+          python -c 'from trl import GRPOTrainer; import torch'
+          python -m pytest -q
+      - name: Exercise installed training commands
+        run: |
+          repriserl-train baseline --tiny --config configs/tiny_cpu.yaml --output "$RUNNER_TEMP/stock" --eval-every 9
+          repriserl-train fixed-replay --tiny --config configs/tiny_cpu.yaml --output "$RUNNER_TEMP/replay" --eval-every 9
+          repriserl-report --target 0.5 "$RUNNER_TEMP/stock" "$RUNNER_TEMP/replay"

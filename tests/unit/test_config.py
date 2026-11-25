@@ -20,9 +20,10 @@ def test_default_profile():
     assert config.learning_rate == 1e-6
     assert config.model == "Qwen/Qwen2.5-1.5B-Instruct"
     assert config.max_steps == 100
-    assert config.std_convention is None
-    assert config.eos_handling is None
-    assert config.truncation_handling is None
+    assert config.std_convention == "sample"
+    assert config.eos_handling == config.truncation_handling == "include"
+    assert config.normalization == "optimizer_batch"
+    assert len(config.model_revision) == 40
     with pytest.raises(FrozenInstanceError):
         config.group_size = 2
 
