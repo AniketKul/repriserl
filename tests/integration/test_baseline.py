@@ -37,11 +37,11 @@ def test_stock_cpu_training_and_development_evaluation(tmp_path):
 
 def test_expired_run_preserves_failure_receipt(tmp_path):
     from repriserl.adapters.trl.baseline import run_baseline
-    config = RunConfig(max_time_seconds=0.0001, batch_groups=1, group_size=2)
+    config = RunConfig(max_steps=2, max_time_seconds=0.0001, batch_groups=1, group_size=2)
     with pytest.raises(TimeoutError, match="budget"):
         run_baseline(config, tmp_path, tiny=True, sizes=(8, 1, 0))
     receipt = json.loads((tmp_path / "summary.json").read_text())
-    assert receipt["status"] == "failed" and receipt["error_type"] == "TimeoutError"
+    assert receipt["status"] == "failed" and receipt["stop_reason"] == "wall_time_budget"
 
 
 def test_cpu_head_matches_model_logits_and_gradients():
@@ -91,3 +91,47 @@ def test_instruct_prompt_uses_model_generation_template():
     )
     problem = Problem((2, 2, 3), 7)
     assert problem_prompt(problem, tokenizer) == "user: " + problem_prompt(problem) + " assistant:"
+
+def test_time_only_trainer_rejected_before_allocating(tmp_path):
+    from repriserl.adapters.trl.baseline import run_baseline
+    with pytest.raises(ValueError, match="max_steps"):
+        run_baseline(RunConfig(max_time_seconds=15), tmp_path, tiny=True, sizes=(8, 1, 0))
+    assert json.loads((tmp_path / "summary.json").read_text())["stop_reason"] == "error"
+
+
+@pytest.mark.parametrize("expire_on_second_eval", [False, True])
+def test_first_target_checkpoint_and_completed_progress(tmp_path, monkeypatch, expire_on_second_eval):
+    import signal
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from repriserl.adapters.trl import baseline
+    calls = []
+    def evaluate(trainer, problems, cap):
+        calls.append(len(problems))
+        if expire_on_second_eval and len(calls) == 2:
+            signal.raise_signal(signal.SIGALRM)
+        return len(problems)
+    monkeypatch.setattr(baseline, "_evaluate", evaluate)
+    config = RunConfig(max_steps=2, max_time_seconds=120, prompt_token_cap=64, completion_token_cap=2,
+                       batch_groups=1, group_size=2, target_accuracy=1)
+    if expire_on_second_eval:
+        with pytest.raises(TimeoutError):
+            baseline.run_baseline(config, tmp_path, tiny=True, sizes=(3, 2, 0))
+    else:
+        baseline.run_baseline(config, tmp_path, tiny=True, sizes=(3, 2, 0))
+    result = json.loads((tmp_path / "summary.json").read_text())
+    hit = result["target_checkpoint"]
+    assert result["steps"] == 2
+    assert hit["step"] == 1 and hit["target_accuracy"] == hit["accuracy"] == 1
+    assert hit["elapsed_seconds"] == result["development"][0]["elapsed_seconds"]
+    assert 0 < result["phase_seconds"]["save_target_model"] <= hit["elapsed_seconds"]
+    policy = tmp_path / hit["model_path"]
+    assert AutoModelForCausalLM.from_pretrained(policy).config.vocab_size == len(AutoTokenizer.from_pretrained(policy))
+    if expire_on_second_eval:
+        assert result["status"] == "failed" and result["stop_reason"] == "wall_time_budget"
+        assert len(result["development"]) == 1 and not (tmp_path / "model").exists()
+    else:
+        assert result["status"] == "completed" and (tmp_path / "model").is_dir()
+        assert len(result["development"]) == 2
+    (tmp_path / "summary.json").unlink()
+    with pytest.raises(FileExistsError):
+        baseline.run_baseline(config, tmp_path, tiny=True, sizes=(3, 2, 0))

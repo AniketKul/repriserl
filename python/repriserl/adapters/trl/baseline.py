@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import signal
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from repriserl.config import RunConfig
@@ -22,6 +23,8 @@ _CONVENTIONS = {"std_convention": "sample", "eos_handling": "include",
 
 
 def _checked_config(config: RunConfig) -> RunConfig:
+    if config.max_steps is None:
+        raise ValueError("training requires an explicit max_steps budget")
     for name, expected in _CONVENTIONS.items():
         if getattr(config, name) not in (None, expected):
             raise ValueError(f"stock TRL profile requires {name}={expected}")
@@ -30,6 +33,10 @@ def _checked_config(config: RunConfig) -> RunConfig:
     if int(os.environ.get("WORLD_SIZE", "1")) != 1:
         raise ValueError("only single-process training is supported")
     return replace(config, **_CONVENTIONS)
+
+
+class _WallTimeBudget(TimeoutError):
+    pass
 
 
 @contextmanager
@@ -41,7 +48,7 @@ def _deadline(seconds):
     if signal.getitimer(signal.ITIMER_REAL) != (0.0, 0.0):
         raise RuntimeError("cannot replace an active process timer")
     def exhausted(signum, frame):
-        raise TimeoutError("training wall-time budget reached")
+        raise _WallTimeBudget("training wall-time budget reached")
     old = signal.signal(signal.SIGALRM, exhausted)
     signal.setitimer(signal.ITIMER_REAL, seconds)
     try:
@@ -79,7 +86,7 @@ def make_trainer(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
     batch_size = config.batch_groups * config.group_size
     args = GRPOConfig(
         output_dir=str(output_dir), use_cpu=tiny, bf16=not tiny, fp16=False,
-        seed=config.seed, data_seed=config.seed, max_steps=config.max_steps or 2**31 - 1,
+        seed=config.seed, data_seed=config.seed, max_steps=config.max_steps,
         per_device_train_batch_size=config.microbatch_size, generation_batch_size=batch_size,
         gradient_accumulation_steps=batch_size // config.microbatch_size,
         num_generations=config.group_size, num_iterations=num_iterations,
@@ -156,6 +163,21 @@ def _evaluate(trainer, problems, token_cap):
     return num_correct
 
 
+def _save_policy(trainer, path: Path) -> None:
+    if os.path.lexists(path):
+        raise FileExistsError(f"checkpoint already exists: {path.name}")
+    with TemporaryDirectory(prefix=".saving-policy-", dir=path.parent) as staging:
+        trainer.model.save_pretrained(staging)
+        trainer.processing_class.save_pretrained(staging)
+        Path(staging).rename(path)
+
+
+def _write_summary(path: Path, summary: dict) -> None:
+    tmp = path.with_name("." + summary["run_id"] + ".tmp")
+    tmp.write_text(json.dumps(summary, allow_nan=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterations: int,
                  sizes: tuple[int, int, int], trainer_class=None, arm: str = "baseline",
                  eval_every: int = 1, callbacks=()) -> dict:
@@ -168,7 +190,7 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                    device="cpu" if tiny else "cuda", seed=config.seed, config=asdict(config),
                    steps=0, development=[], status="running", num_iterations=num_iterations,
                    backend="transformers", verifier_digest=VERIFIER_DIGEST, eval_every=eval_every)
-    if (output_dir / "model").exists():
+    if any(os.path.lexists(output_dir / name) for name in ("model", "target-model")):
         raise FileExistsError("the run directory already contains a saved policy")
     with path.open("x") as started:
         json.dump(summary, started)
@@ -176,13 +198,13 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
     summary["score_head"] = "dense_cpu_fixture" if tiny else "trl_fused"
     trainer = observation = None
     try:
+        config = _checked_config(config)
         with _deadline(config.max_time_seconds), ExitStack() as resources:
             if not tiny:
                 from repriserl.gpu_run import observe_run
                 observation = resources.enter_context(observe_run(config.allow_shared_gpu))
             from transformers import TrainerCallback
             import torch
-            config = _checked_config(config)
             summary["config"] = asdict(config)
             if type(tiny) is not bool:
                 raise ValueError("tiny must be a boolean")
@@ -202,13 +224,29 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                     track(optimizer, "step", "optimizer")
 
                 def on_step_end(self, args, state, control, **kwargs):
+                    summary["steps"] = state.global_step
                     if state.global_step % eval_every == 0 or state.global_step == state.max_steps:
                         with meter.phase("development_evaluation"):
                             correct = _evaluate(trainer, splits.development, config.completion_token_cap)
+                        accuracy = correct / len(splits.development)
+                        hit = (config.target_accuracy is not None and accuracy >= config.target_accuracy
+                               and "target_checkpoint" not in summary)
+                        if hit:
+                            with meter.phase("save_target_model"):
+                                _save_policy(trainer, output_dir / "target-model")
+                        elapsed = meter.elapsed()
+                        if hit:
+                            summary["target_checkpoint"] = {
+                                "model_path": "target-model", "step": state.global_step,
+                                "accuracy": accuracy, "target_accuracy": config.target_accuracy,
+                                "elapsed_seconds": elapsed,
+                            }
                         summary["development"].append({
-                            "step": state.global_step, "elapsed_seconds": meter.elapsed(), "correct": correct,
+                            "step": state.global_step, "elapsed_seconds": elapsed, "correct": correct,
                             "total": len(splits.development), "split": "development",
                         })
+                    summary["elapsed_seconds"] = meter.elapsed()
+                    _write_summary(path, summary)
             trainer.add_callback(Evaluate())
             result = trainer.train()
             if not tiny:
@@ -217,24 +255,15 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
             if not math.isfinite(result.training_loss):
                 raise FloatingPointError("non-finite training loss")
             summary["optimizer_loss"] = result.training_loss
-            summary["training_metrics"] = [
-                {key: record[key] for key in ("step", "loss", "grad_norm", "reward",
-                                               "reward_std", "frac_reward_zero_std")
-                 if key in record and math.isfinite(record[key])}
-                for record in trainer.state.log_history if "loss" in record
-            ]
             if result.global_step != trainer.args.max_steps:
                 raise RuntimeError("trainer exited before its requested update count")
             with meter.phase("save_model"):
-                candidate = output_dir / ("model-" + summary["run_id"] + ".partial")
-                candidate.mkdir()
-                trainer.model.save_pretrained(candidate)
-                trainer.processing_class.save_pretrained(candidate)
-                candidate.rename(output_dir / "model")
+                _save_policy(trainer, output_dir / "model")
             summary["model_path"] = "model"
             summary["status"] = "completed"
     except BaseException as exc:
-        summary.update(status="failed", error_type=type(exc).__name__, error=str(exc))
+        reason = "wall_time_budget" if isinstance(exc, _WallTimeBudget) else "error"
+        summary.update(status="failed", stop_reason=reason, error_type=type(exc).__name__, error=str(exc))
         raise
     finally:
         timing = meter.finish()
@@ -242,12 +271,16 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
             summary.update(device_sharing=observation.label, occupancy_samples=observation.samples)
         if trainer is not None:
             summary["steps"] = trainer.state.global_step
+            summary["training_metrics"] = [
+                {key: record[key] for key in ("step", "loss", "grad_norm", "reward",
+                                               "reward_std", "frac_reward_zero_std")
+                 if key in record and math.isfinite(record[key])}
+                for record in trainer.state.log_history if "loss" in record
+            ]
             if hasattr(trainer, "replay_metrics"):
                 summary["replay_metrics"] = trainer.replay_metrics
         summary.update(elapsed_seconds=timing["wall_seconds"], phase_seconds=timing["phase_seconds"])
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(summary, allow_nan=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
+        _write_summary(path, summary)
     return summary
 
 
