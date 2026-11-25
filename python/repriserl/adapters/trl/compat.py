@@ -197,7 +197,9 @@ class ReplayGRPOAdapter(GRPOTrainer):
                     else:
                         accepted.append(group)
             with self._phase("generate_fresh"):
-                samples = self._sample([g[0] for g in groups[:len(groups) - len(accepted)]])
+                fresh_count = len(groups) - len(accepted)
+                self.replay_store.ensure_capacity(fresh_count)
+                samples = self._sample([g[0] for g in groups[:fresh_count]])
             with self._phase("verify_score_fresh"):
                 fresh = [self._freeze(s, policy, f"{batch_id}:{i}") for i, s in enumerate(samples)]
                 batch = self.prepare_batch(accepted + fresh, policy)

@@ -19,3 +19,22 @@ def test_tiny_cpu_optimizer_steps_include_real_reuse(tmp_path):
     assert len(steps[8]["accepted"]) == len(steps[8]["fresh"]) == 1
     assert steps[8]["accepted"][0] in {gid for step in steps[:8] for gid in step["fresh"]}
     assert all(value >= 0 for value in replay["phase_seconds"].values())
+
+
+def test_full_store_fails_before_generation_and_optimizer(tmp_path, monkeypatch):
+    import json
+    from repriserl.adapters.trl import compat
+    from repriserl.reference.buffer import ReferenceReplayStore
+
+    monkeypatch.setattr(compat, "ReferenceReplayStore",
+                        lambda **kwargs: ReferenceReplayStore(capacity=1, **kwargs))
+    def unexpected_sample(self, rows):
+        pytest.fail("trainer generated a batch that could not be recorded")
+    monkeypatch.setattr(compat.ReplayGRPOAdapter, "_sample", unexpected_sample)
+    config = RunConfig(max_steps=1, group_size=2, batch_groups=2, microbatch_size=2,
+                       prompt_token_cap=64, completion_token_cap=3)
+    with pytest.raises(BufferError):
+        run_fixed_replay(config, tmp_path, tiny=True, sizes=(8, 2, 0))
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["status"] == "failed" and summary["steps"] == 0
+    assert summary["replay_metrics"]["steps"] == []
