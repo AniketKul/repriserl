@@ -73,3 +73,4 @@ jobs:
           repriserl-train baseline --tiny --config configs/tiny_cpu.yaml --output "$RUNNER_TEMP/stock" --eval-every 9
           repriserl-train fixed-replay --tiny --config configs/tiny_cpu.yaml --output "$RUNNER_TEMP/replay" --eval-every 9
           repriserl-report --target 0.5 "$RUNNER_TEMP/stock" "$RUNNER_TEMP/replay"
+          repriserl-evaluate "$RUNNER_TEMP/replay" --checkpoint final --max-seconds 120

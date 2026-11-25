@@ -29,6 +29,18 @@ configuration to save the first qualifying development checkpoint in
 The CPU fixture exercises generation, verification, optimization, and replay.
 CPU scoring uses dense PyTorch operations. GPU scoring uses TRL's fused output head.
 
+After choosing a checkpoint under a fixed evaluation protocol, score its
+sealed test split once. The default selects the first checkpoint that reached
+the configured development target. For a fixed-budget experiment, explicitly
+select the final checkpoint instead.
+
+```bash
+repriserl-evaluate outputs/qwen-replay --checkpoint target --max-seconds 1800
+```
+
+The command checks the recorded split and checkpoint identities before writing
+`sealed-evaluation.json`.
+
 ## Run with Qwen on one H100
 
 Use a Linux Python 3.12 environment. Install the CUDA wheel from the PyTorch
