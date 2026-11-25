@@ -2,6 +2,7 @@
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, replace
 from functools import wraps
+from hashlib import sha256
 from importlib.metadata import version
 import json
 import math
@@ -14,9 +15,10 @@ from uuid import uuid4
 from repriserl.config import RunConfig
 from repriserl.data.problems import ProblemSplits, make_splits
 from repriserl.metrics import PhaseMeter
-from repriserl.verifiers.number_expression import VERIFIER_DIGEST, verify_expression
+from repriserl.verifiers.number_expression import Problem, VERIFIER_DIGEST, verify_expression
 
-from .models import enable_tiny_cpu_scores, load_model_and_tokenizer, problem_prompt, reward_completions
+from .models import (PROMPT_EXAMPLES, enable_tiny_cpu_scores, load_model_and_tokenizer,
+                     problem_prompt, reward_completions)
 
 _CONVENTIONS = {"std_convention": "sample", "eos_handling": "include",
                 "truncation_handling": "include", "normalization": "optimizer_batch"}
@@ -72,6 +74,10 @@ def make_trainer(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
     if len(splits.train) < config.batch_groups or not splits.development:
         raise ValueError("at least batch_groups train problems and one development problem required")
     model, tokenizer = model_tokenizer or load_model_and_tokenizer(config, tiny=tiny)
+    if tokenizer.chat_template:
+        examples = {p.id for p, _ in PROMPT_EXAMPLES}
+        if examples.intersection(splits.development_ids) or examples.intersection(splits.test_ids):
+            raise ValueError("a held-out problem matches a prompt demonstration")
     prompts = [problem_prompt(problem, tokenizer) for problem in splits.train]
     # This TRL release does not apply a prompt length limit to plain text prompts.
     for group in (prompts, [problem_prompt(problem, tokenizer) for problem in splits.development]):
@@ -105,6 +111,8 @@ def make_trainer(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
     )
     if tiny:
         enable_tiny_cpu_scores(trainer.model)
+    fixture = problem_prompt(Problem((1, 3, 7, 11), 24), tokenizer)
+    trainer.repriserl_prompt_digest = sha256(fixture.encode("utf-8")).hexdigest()
     trainer.repriserl_config = config
     return trainer
 
@@ -218,6 +226,7 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                     "torch", "trl", "transformers", "accelerate", "datasets", "tokenizers")}
                 trainer = make_trainer(config, output_dir, tiny=tiny, num_iterations=num_iterations,
                                        splits=splits, trainer_class=trainer_class, callbacks=callbacks)
+            summary["prompt_digest"] = trainer.repriserl_prompt_digest
             track = _instrument(trainer, meter, tiny)
             class Evaluate(TrainerCallback):
                 def on_train_begin(self, args, state, control, optimizer, **kwargs):

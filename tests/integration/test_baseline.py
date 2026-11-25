@@ -16,6 +16,11 @@ def test_stock_cpu_training_and_development_evaluation(tmp_path):
     assert json.loads((tmp_path / "summary.json").read_text()) == summary
     assert summary["status"] == "completed" and summary["steps"] == 1
     assert summary["fixture"] and summary["device"] == "cpu"
+    from hashlib import sha256
+    from repriserl.adapters.trl.models import problem_prompt
+    from repriserl.verifiers.number_expression import Problem
+    expected = problem_prompt(Problem((1, 3, 7, 11), 24))
+    assert summary["prompt_digest"] == sha256(expected.encode()).hexdigest()
     assert summary["development"][-1]["total"] == 2
     assert summary["development"][-1]["split"] == "development"
     assert summary["phase_seconds"]["generation"] > 0
@@ -81,16 +86,43 @@ def test_cuda_preflight_records_denial_before_loading_a_model(monkeypatch, tmp_p
     assert record["device_sharing"] == "unverified"
 
 
-def test_instruct_prompt_uses_model_generation_template():
-    from repriserl.adapters.trl.models import load_model_and_tokenizer, problem_prompt
-    from repriserl.verifiers.number_expression import Problem
-    _, tokenizer = load_model_and_tokenizer(RunConfig(max_steps=1), tiny=True)
+def test_worked_examples_and_common_train_eval_rendering(monkeypatch, tmp_path):
+    import re
+    from repriserl.adapters.trl.baseline import _evaluate, make_trainer
+    from repriserl.adapters.trl.models import load_model_and_tokenizer
+    from repriserl.data.problems import ProblemSplits
+    from repriserl.verifiers.number_expression import Problem, verify_expression
+
+    config = RunConfig(max_steps=1, batch_groups=1, group_size=2, completion_token_cap=2)
+    model, tokenizer = load_model_and_tokenizer(config, tiny=True)
     tokenizer.chat_template = (
-        "{{ messages[0].role }}: {{ messages[0].content }}"
-        "{% if add_generation_prompt %} assistant:{% endif %}"
+        "{% for m in messages %}{{ m.role }}: {{ m.content }}\n{% endfor %}"
+        "{% if add_generation_prompt %}assistant:{% endif %}"
     )
-    problem = Problem((2, 2, 3), 7)
-    assert problem_prompt(problem, tokenizer) == "user: " + problem_prompt(problem) + " assistant:"
+    problem = Problem((1, 3, 7, 11), 24)
+    splits = ProblemSplits((problem,), (Problem((1, 6, 8, 9), 10),), ())
+    trainer = make_trainer(config, tmp_path, tiny=True, num_iterations=1, splits=splits,
+                           model_tokenizer=(model, tokenizer))
+    rendered = trainer.train_dataset[0]["prompt"]
+    examples = re.findall(r"user: Numbers: ([0-9, ]+)\. Target: (\d+)\.\nassistant: ([^\n]+)", rendered)
+    assert len(examples) == 2
+    for numbers, target, answer in examples:
+        demo = Problem(tuple(map(int, numbers.split(","))), int(target))
+        assert verify_expression(demo, answer).reward == 1.0
+    assert rendered.endswith("user: Numbers: 1, 3, 7, 11. Target: 24.\nassistant:")
+    generated_for = []
+    generate = model.generate
+    def capture(*args, **kwargs):
+        generated_for.append(kwargs["input_ids"].tolist()[0])
+        return generate(*args, **kwargs)
+    monkeypatch.setattr(model, "generate", capture)
+    _evaluate(trainer, (problem,), token_cap=2)
+    assert generated_for == [tokenizer(rendered)["input_ids"]]
+    overlap = ProblemSplits((problem,), (Problem((2, 3, 4, 5), 15),), ())
+    with pytest.raises(ValueError, match="demonstration"):
+        make_trainer(config, tmp_path, tiny=True, num_iterations=1, splits=overlap,
+                     model_tokenizer=(model, tokenizer))
+
 
 def test_time_only_trainer_rejected_before_allocating(tmp_path):
     from repriserl.adapters.trl.baseline import run_baseline

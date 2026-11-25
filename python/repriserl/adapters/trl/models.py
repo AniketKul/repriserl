@@ -3,14 +3,30 @@ from repriserl.config import RunConfig
 from repriserl.verifiers.number_expression import Problem, verify_expression
 
 
+PROMPT_EXAMPLES = (
+    (Problem((2, 3, 4, 5), 15), "(2 + 3) * 4 - 5"),
+    (Problem((2, 2, 3, 8), 15), "(8 - 2) * 2 + 3"),
+)
+
+
+def _puzzle_message(problem: Problem) -> dict[str, str]:
+    numbers = ", ".join(map(str, problem.numbers))
+    return {"role": "user", "content": f"Numbers: {numbers}. Target: {problem.target}."}
+
+
 def problem_prompt(problem: Problem, tokenizer=None) -> str:
-    numbers = " ".join(map(str, problem.numbers))
-    prompt = (f"Use each number exactly once: {numbers}. Make {problem.target} "
-            "using + - * / and parentheses. Return only the expression.\nAnswer:")
     if tokenizer is not None and tokenizer.chat_template:
-        return tokenizer.apply_chat_template([{"role": "user", "content": prompt}],
-                                             tokenize=False, add_generation_prompt=True)
-    return prompt
+        messages = [{"role": "system", "content": (
+            "Solve the numbers puzzle. Reply with a single arithmetic expression using each number "
+            "exactly once. Use only digits, +, -, *, /, and parentheses."
+        )}]
+        for example, solution in PROMPT_EXAMPLES:
+            messages.extend((_puzzle_message(example), {"role": "assistant", "content": solution}))
+        messages.append(_puzzle_message(problem))
+        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    numbers = " ".join(map(str, problem.numbers))
+    return (f"Use each number exactly once: {numbers}. Make {problem.target} "
+            "using + - * / and parentheses. Return only the expression.\nAnswer:")
 
 
 def reward_completions(completions, numbers, target, **kwargs) -> list[float]:
