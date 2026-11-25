@@ -187,7 +187,7 @@ def _write_summary(path: Path, summary: dict) -> None:
 
 
 def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterations: int,
-                 sizes: tuple[int, int, int], trainer_class=None, arm: str = "baseline",
+                 sizes: tuple[int, int, int], arm: str = "baseline",
                  eval_every: int = 1, callbacks=()) -> dict:
     """Write one result for a bounded run and re-raise failures after recording them."""
     meter = PhaseMeter()
@@ -224,6 +224,10 @@ def run_training(config: RunConfig, output_dir: Path, *, tiny: bool, num_iterati
                 summary["dev_size"] = len(splits.development)
                 summary["versions"] = {pkg: version(pkg) for pkg in (
                     "torch", "trl", "transformers", "accelerate", "datasets", "tokenizers")}
+                trainer_class = None
+                if arm == "fixed_replay":
+                    from .compat import ReplayGRPOAdapter
+                    trainer_class = ReplayGRPOAdapter
                 trainer = make_trainer(config, output_dir, tiny=tiny, num_iterations=num_iterations,
                                        splits=splits, trainer_class=trainer_class, callbacks=callbacks)
             summary["prompt_digest"] = trainer.repriserl_prompt_digest
