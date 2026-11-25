@@ -25,6 +25,7 @@ class RunConfig:
     model_revision: str | None = None
     requested_gpu_count: int = 1
     allow_shared_gpu: bool = False
+    target_accuracy: float | None = None
     prompt_token_cap: int = 512
     completion_token_cap: int = 1024
     group_size: int = 4
@@ -41,6 +42,9 @@ class RunConfig:
     normalization: str | None = None
 
     def __post_init__(self) -> None:
+        if self.target_accuracy is not None and (type(self.target_accuracy) not in (int, float)
+                or not 0 < self.target_accuracy <= 1):
+            raise ValueError("target_accuracy must be in (0, 1]")
         if type(self.allow_shared_gpu) is not bool:
             raise ValueError("allow_shared_gpu must be boolean")
         for name in ("requested_gpu_count", "prompt_token_cap", "completion_token_cap",

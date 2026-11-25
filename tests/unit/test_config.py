@@ -82,3 +82,9 @@ def test_yaml_merge_duplicates_are_rejected(tmp_path):
 def test_immutable_model_revision_is_preserved(tmp_path):
     config = load(tmp_path, "max_steps: 1\nmodel_revision: '1234567890abcdef1234567890abcdef12345678'")
     assert config.model_revision == "1234567890abcdef1234567890abcdef12345678"
+
+
+@pytest.mark.parametrize("target", [False, 0, -1, 1.01, float("nan"), "1.0"])
+def test_invalid_checkpoint_target(target):
+    with pytest.raises(ValueError, match="target_accuracy"):
+        RunConfig(max_steps=1, target_accuracy=target)
