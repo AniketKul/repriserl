@@ -38,6 +38,13 @@ class ReferenceReplayStore:
         self._records: dict[str, _BatchRecord] = {}
         self._lock = RLock()
 
+    def ensure_capacity(self, fresh_groups: int) -> None:
+        """Preflight fresh inserts for the single writer before its optimizer step."""
+        _count(fresh_groups, "fresh_groups")
+        with self._lock:
+            if len(self._groups) + fresh_groups > self._capacity:
+                raise BufferError("group capacity exhausted")
+
     def put_group(self, group: RolloutGroup) -> PutResult:
         if not isinstance(group, RolloutGroup) or len(group.rollouts) != self._group_size:
             raise ValueError("expected a complete rollout group")
@@ -46,8 +53,7 @@ class ReferenceReplayStore:
                 if group != self._groups[group.group_id]:
                     raise ValueError("conflicting payload for group ID")
                 return PutResult(False)
-            if len(self._groups) >= self._capacity:
-                raise BufferError("group capacity exhausted")
+            self.ensure_capacity(1)
             self._groups[group.group_id] = group
             self._uses[group.group_id] = 1
             return PutResult(True)

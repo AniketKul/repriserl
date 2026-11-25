@@ -123,3 +123,19 @@ def test_concurrent_reservations_and_random_retries_respect_lifetime_budget():
         store.record_applied(r.batch_id, 0, accepted)
     assert {g: store.use_count(g) for g in expected} == expected
     assert max(expected.values()) <= 3
+
+
+
+def test_preflight_fresh_capacity_without_reserving_or_inserting():
+    store = ReferenceReplayStore(capacity=2)
+    store.put_group(group("a"))
+    for count in (-1, True, 1.5):
+        with pytest.raises(ValueError, match="fresh_groups"):
+            store.ensure_capacity(count)
+    with pytest.raises(BufferError):
+        store.ensure_capacity(2)
+    store.ensure_capacity(1)
+    assert store.put_group(group("b")).inserted
+    store.ensure_capacity(0)
+    with pytest.raises(BufferError):
+        store.ensure_capacity(1)
