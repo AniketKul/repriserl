@@ -23,7 +23,9 @@ repriserl-report --target 0.5 outputs/stock outputs/replay
 ```
 
 Each run writes a `summary.json` with elapsed time, configuration, and
-development evaluations. Give each invocation a new output directory.
+development evaluations. The saved model and tokenizer are in `model/`. Set `target_accuracy` in your
+configuration to save the first qualifying development checkpoint in
+`target-model/`. Give each invocation a new output directory.
 The CPU fixture exercises generation, verification, optimization, and replay.
 CPU scoring uses dense PyTorch operations. GPU scoring uses TRL's fused output head.
 
@@ -41,7 +43,8 @@ repriserl-train fixed-replay --config configs/qwen15b_h100_fresh.yaml --output o
 ```
 
 The supplied profile pins the model revision and bounds the run at 100 updates
-or one hour. Stock GRPO supports `--num-iterations 1`, `2`, or `4`. The report
+or one hour. The step limit defines completion, and the wall-time limit
+interrupts overruns. Stock GRPO supports `--num-iterations 1`, `2`, or `4`. The report
 uses development accuracy and includes failed runs and runs that miss the
 requested target. GPU runs sample other compute-process occupancy once per second.
 The report compares only matched runs with uncontended observations throughout.

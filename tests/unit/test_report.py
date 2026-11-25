@@ -10,7 +10,7 @@ def save(path, arm, seconds, **overrides):
     event = dict(step=1, elapsed_seconds=seconds, correct=2, total=4, split="development")
     versions = dict.fromkeys(("torch", "transformers", "trl", "accelerate", "tokenizers", "datasets"), "1")
     s = dict(schema_version=1, run_id=arm, arm=arm, seed=1, fixture=True, steps=1,
-             elapsed_seconds=seconds+1, device="cpu", split_digest="a"*64, verifier_digest="b"*64,
+             elapsed_seconds=seconds+1, device="cpu", split_digest="a"*64, verifier_digest="b"*64, prompt_digest="c"*64,
              status="completed", development=[event, event], eval_every=1, dev_size=4,
              device_sharing="cpu", backend="transformers", versions=versions,
              config={"max_steps": 1, "model": "tiny"})
@@ -44,7 +44,7 @@ def test_invalid_evidence_cannot_win(tmp_path):
             compare_runs([save(tmp_path/name, "baseline", 1, **extra)], .5)
 
 
-@pytest.mark.parametrize("extra", [{"split_digest":None}, {"verifier_digest":""}, {"config":{}},
+@pytest.mark.parametrize("extra", [{"split_digest":None}, {"verifier_digest":""}, {"prompt_digest":""}, {"config":{}},
                                    {"backend":None}, {"versions":{}}, {"device_sharing":"unverified"}])
 def test_identically_missing_or_unverified_provenance_cannot_match(tmp_path, extra):
     a = save(tmp_path/"a", "baseline", 2, **extra)

@@ -67,7 +67,7 @@ def _row(summary: dict, target: float) -> dict:
 
 
 def _has_provenance(summary: dict) -> bool:
-    digests = ("split_digest", "verifier_digest")
+    digests = ("split_digest", "verifier_digest", "prompt_digest")
     if any(not isinstance(summary.get(k), str) or not re.fullmatch("[a-f0-9]{64}", summary[k])
            for k in digests):
         return False
@@ -107,7 +107,7 @@ def compare_runs(run_dirs: Sequence[Path], target: float) -> dict:
         for replay in (r for r in rows if r["arm"] == "fixed_replay" and r["seed"] == base["seed"]):
             b = summaries[replay["run_id"]]
             match_fields = ("config", "device", "fixture", "split_digest", "verifier_digest",
-                            "eval_every", "dev_size", "device_sharing", "backend", "versions")
+                            "eval_every", "dev_size", "device_sharing", "backend", "versions", "prompt_digest")
             matched = (_has_provenance(a) and _has_provenance(b)
                        and all(k in a and k in b and a[k] == b[k] for k in match_fields))
             ta, tb = base["time_to_target_seconds"], replay["time_to_target_seconds"]
