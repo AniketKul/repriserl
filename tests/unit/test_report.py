@@ -62,3 +62,16 @@ def test_final_off_cadence_evaluation_and_split_size_matching(tmp_path):
     b = save(tmp_path/"b", "fixed_replay", 2, **extra, dev_size=2,
              development=[e | {"total":2}, e | {"step":3, "elapsed_seconds":2, "correct":1, "total":2}])
     assert compare_runs([a,b], .5)["pairs"][0]["matched"] is False
+
+
+@pytest.mark.parametrize("sharing,samples,matched", [
+    ("sampled_uncontended_h100", 5, True), ("sampled_uncontended_h100", 0, False),
+    ("shared_h100", 5, False), ("unverified", 5, False)])
+def test_gpu_pairs_require_uncontended_observations(tmp_path, sharing, samples, matched):
+    config = {"model":"model", "model_revision":"a"*40, "max_steps":1}
+    fields = dict(config=config, fixture=False, device="cuda", device_sharing=sharing,
+                  occupancy_samples=samples)
+    dirs = [save(tmp_path/arm, arm, 2, **fields) for arm in ("baseline", "fixed_replay")]
+    report = compare_runs(dirs, .5)
+    assert report["pairs"][0]["matched"] is matched
+    assert report["runs"][0]["device_sharing"] == sharing

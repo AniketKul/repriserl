@@ -57,7 +57,8 @@ def _row(summary: dict, target: float) -> dict:
     last = trajectory[max(trajectory)] if trajectory else None
     return {"run_id": summary["run_id"], "arm": summary["arm"], "seed": summary["seed"],
             "status": status, "fixture": summary["fixture"], "device": summary["device"],
-            "steps": steps, "elapsed_seconds": elapsed, "time_to_target_seconds":
+            "steps": steps, "device_sharing": summary.get("device_sharing"),
+            "elapsed_seconds": elapsed, "time_to_target_seconds":
             reached if status == "completed" else None,
             "development": [{"step": step, "elapsed_seconds": t, "correct": c, "total": n}
                             for step, (t, c, n) in sorted(trajectory.items())],
@@ -80,7 +81,8 @@ def _has_provenance(summary: dict) -> bool:
     device, sharing, fixture = summary.get("device"), summary.get("device_sharing"), summary.get("fixture")
     if device == "cpu" and fixture is True:
         return sharing == "cpu"
-    return (device == "cuda" and fixture is False and sharing == "exclusive_h100"
+    return (device == "cuda" and fixture is False and sharing == "sampled_uncontended_h100"
+            and type(summary.get("occupancy_samples")) is int and summary["occupancy_samples"] >= 2
             and isinstance(config.get("model_revision"), str)
             and re.fullmatch("[0-9a-f]{40}", config["model_revision"]) is not None)
 

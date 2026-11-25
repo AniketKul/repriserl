@@ -43,7 +43,9 @@ repriserl-train fixed-replay --config configs/qwen15b_h100_fresh.yaml --output o
 The supplied profile pins the model revision and bounds the run at 100 updates
 or one hour. Stock GRPO supports `--num-iterations 1`, `2`, or `4`. The report
 uses development accuracy and includes failed runs and runs that miss the
-requested target. Check device occupancy independently before interpreting timing.
+requested target. GPU runs sample other compute-process occupancy once per second.
+The report compares only matched runs with uncontended observations throughout.
+Short-lived activity between samples can go undetected.
 The macOS ARM64 dependency snapshot is in `config/requirements-macos-arm64.lock`.
 
 ## Development
